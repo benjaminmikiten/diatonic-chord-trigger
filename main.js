@@ -1,330 +1,203 @@
-// Diatonic Chord Trigger
-
-var notes = ["C", "C#/Db", "D", "D#/Eb", "E", "F", "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B"];
+var debug = true;
+var parentKeys = ["C", "C#/Db", "D", "D#/Eb", "E", "F", "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B"];
 var qualities = ["Major", "Natural Minor", "Harmonic Minor", "Jazz Minor"];
+var voicings = ["1-7/3-5-7", "1-5/1-3-5-7"];
 
 var PluginParameters = [
-  { name: "Parent Key", type: "menu", valueStrings:notes, defaultValue: 0 },
-  { name: "Quality", type: "menu", valueStrings: qualities, defaultValue: 0 }
+  {name: "Parent Key", type: "menu", valueStrings: parentKeys, defaultValue: 0},
+  {name: "Quality", type: "menu", valueStrings: qualities, defaultValue: 0},
+  {name: "Voicing", type: "menu", valueStrings: voicings, defaultValue: 0}
 ];
-var debug = false;
 
-function rootKey() {
+function rootKey(){
   return GetParameter("Parent Key");
 }
 
-function keyQuality() {
-  return GetParameter("Quality");
+function getVoicing(){
+  var lh = voicings[GetParameter("Voicing")].split('/')[0].split("-");
+  var rh = voicings[GetParameter("Voicing")].split('/')[1].split("-");
+  var voicing = {
+    'left' : lh,
+    'right' : rh
+  }
+  return voicing;
 }
 
-function playChord(events) {
-	Trace(events);
-		 for (var i = 0; i < events.length; i += 1) {
-		    if (debug) {
-		      events[i].trace();
-		    }
-		    events[i].send();
+function scaleQuality(){
+  return qualities[GetParameter("Quality")];
+}
+
+function playChord(events){
+  events.map(function(event){
+    event.send();
+  });
+}
+
+function log(msg, val){
+  if(debug){
+    var m = msg + " : " + val;
+    Trace(m);
   }
 }
 
-function copyNote(event) {
-  var copy = new event.constructor();
-  copy.pitch = event.pitch;
-  copy.velocity = event.velocity;
-  return copy;
-}
-
-function noteAtSemitonesFrom(event, semitones) {
-  var note = new event.constructor();
-  note.pitch = event.pitch + semitones;
-  note.velocity = event.velocity;
-  return note;
-}
+// Interval Transformation
 
 function semitoneDifferenceFromRoot(pitch) {
   var semitones = (pitch - rootKey()) % 12;
-  if (debug) {
-    Trace(pitch);
-    Trace(semitones);
-  }
   return semitones;
 }
 
-
-// Interval Lookup
-
-function majorThirdIntervalFrom(event) {
-	Trace('maj 3');
-  return noteAtSemitonesFrom(event, 4);
+function semitonesByInterval(interval){
+  return ["unison", "m2", "M2", "m3", "M3", "P4", "TT", "P5", "m6", "M6", "m7", "M7", "octave"].indexOf(interval);
 }
 
-function minorThirdIntervalFrom(event) {
-	Trace('min 3');
-  return noteAtSemitonesFrom(event, 3);
+function transformByInterval(input, event){
+  // separate "m3 above"
+
+  var direction, interval;
+  if(input.split(" ").length == 2){
+    direction = input.split(" ")[1]; // "above" or "below"
+    interval = input.split(" ")[0]; // some interval
+  } else {
+    interval = input;
+    direction = "above";
+  }
+
+  var semitones = direction == "below" ? semitonesByInterval(interval) * -1 : semitonesByInterval(interval);
+ 
+  var note = new event.constructor();
+  note.pitch = event.pitch + semitones;
+  note.velocity = event.velocity;
+  return note; 
 }
 
-function diminishedFifthIntervalFrom(event) {
-	Trace('dim 5');
-  return noteAtSemitonesFrom(event, 6);
+// Chord Factories
+
+var ChordLibrary = {
+  "major" : ["M3", "P5", "M7"],
+  "minor" : ["m3", "P5", "m7"],
+  "dominant" : ["M3", "P5", "m7"],
+  "halfDiminished" : ["m3", "TT", "m7"],
+  "fullDiminished" : ["m3", "TT", "M6"],
+  "augmentedMajor" : ["M3", "M6", "M7"],
+  "augmentedMinor" : ["m3", "TT", "m7"],
+  "minorMajor" : ["m3", "P5", "M7"],
+  "augmentedDominant" : ["M3", "TT", "m7"],
+  "diminishedMajor" : ["m3", "TT", "M7"],
 }
 
-function perfectFifthIntervalFrom(event) {
-	Trace('perf 5');
-  return noteAtSemitonesFrom(event, 7);
+function buildChord(intervals, event){
+  var chord = intervals.map(function(interval){
+    return transformByInterval(interval, event);
+  });
+  return chord;
 }
 
-function augmentedFifthIntervalFrom(event) {
-	Trace('aug 5');
-  return noteAtSemitonesFrom(event, 8);
+function transformVoicing(voicing, intervals){
+  var hand = voicing.map(function(voicing){
+    switch(voicing){
+      case "1":
+        return "unison"
+        break;
+      case "3":
+        return intervals[0];
+        break;
+      case "5":
+        return intervals[1];
+        break;
+      case "7":
+        return intervals[2];
+        break;
+      default:
+        return "unison"
+        break;
+    };
+  });
+  return hand;
 }
 
-function majorSixthIntervalFrom(event) {
-	Trace('maj 6');
-  return noteAtSemitonesFrom(event, 9);
-}
-
-function minorSeventhIntervalFrom(event) {
-	Trace('min 7');
-  return noteAtSemitonesFrom(event, 10);
-}
-
-function majorSeventhIntervalFrom(event) {
-	Trace('maj 7');
-  return noteAtSemitonesFrom(event, 11);
-}
-
-function octaveAbove(event) {
-	Trace('oct');
-  return noteAtSemitonesFrom(event, 12);
-}
-
-// Chord Constructors 
-
-// Ma7
-function majorChordWithRoot(event) {
-	Trace('- maj chord');
-  var notes = [
-    event,
-    majorThirdIntervalFrom(event),
-    perfectFifthIntervalFrom(event),
-    majorSeventhIntervalFrom(event),
-    octaveAbove(event)
-  ];
-  return notes;
-}
-
-// Min7
-function minorChordWithRoot(event) {
-Trace('- min chord');
-  var notes = [
-    event,
-    minorThirdIntervalFrom(event),
-    perfectFifthIntervalFrom(event),
-    minorSeventhIntervalFrom(event)
-  ];
+function buildVoicing(chordType, event){
+  var voicingPattern = getVoicing();
+  var intervals = ChordLibrary[chordType];
+  var rightHandIntervals = transformVoicing(voicingPattern.right, intervals);
+  var leftHandIntervals = transformVoicing(voicingPattern.left, intervals);
+  var rightChord = buildChord(rightHandIntervals, event);
+  var leftChord = buildChord(leftHandIntervals, event);
   
-  notes.push(octaveAbove(event));
-  return notes;
+  leftChord = leftChord.map(function(note){
+    return transformByInterval('octave below', note);
+  });
+
+  var voicing = leftChord.concat(rightChord);
+  return voicing;
 }
 
-// halfDim7
-function halfDiminishedChordWithRoot(event) {
-Trace('- half dim chord');
-  var notes = [
-    event,
-    minorThirdIntervalFrom(event),
-    diminishedFifthIntervalFrom(event),
-    minorSeventhIntervalFrom(event)
-  ];
-  
-  notes.push(octaveAbove(event));
-  return notes;
-}
-
-// fullDim7
-function fullDiminishedChordWithRoot(event) {
-Trace('- full dim chord');
-  var notes = [
-    event,
-    minorThirdIntervalFrom(event),
-    diminishedFifthIntervalFrom(event),
-    majorSixthIntervalFrom(event)
-  ];
-  
-  notes.push(octaveAbove(event));
-  return notes;
-}
-
-// Dom7
-function dominantChordWithRoot(event){
-Trace('- dom chord');
-	var notes = [
-		event,
-		majorThirdIntervalFrom(event),
-		perfectFifthIntervalFrom(event),
-		minorSeventhIntervalFrom(event)
-	];
-	
-	notes.push(octaveAbove(event));
-	return notes;
-}
-
-// minMaj7
-function minMajChordWithRoot(event){
-Trace('- minmaj chord');
-	var notes = [
-		event,
-		minorThirdIntervalFrom(event),
-		perfectFifthIntervalFrom(event),
-		majorSeventhIntervalFrom(event)
-	];
-	
-	notes.push(octaveAbove(event));
-	return notes;
-}
-
-// augMaj7
-function augMajorChordWithRoot(event){
-	Trace('- aug maj chord');
-	var notes = [
-		event,
-		majorThirdIntervalFrom(event),
-		augmentedFifthIntervalFrom(event),
-		majorSeventhIntervalFrom(event)
-	];
-	
-	notes.push(octaveAbove(event));
-	return notes;
-}
 
 
 // Diatonic Function Lookup
 
-function pitchIsInSetOf(event, pitches){
-	return pitches.indexOf(semitoneDifferenceFromRoot(event.pitch)) >= 0;
-}
-
-
-// KEY: 
-// M - major
-// m - minor
-// D - dominant
-// h - halfDiminished
-// A - augMajor
-// F - fullDiminished
-// mM - minorMajor
-
-// MAJOR
-// --       QUALITY:  M     m     m  M     D     m     h
-// -- SCALE DEGREES:  1     2     3  4     5     6     7
-// -- REL SEMITONES:  0  1  2  3  4  5  6  7  8  9  10 11 12
-// NATURAL MINOR
-// --       QUALITY:  m     h  M     m     m  M     D
-// -- SCALE DEGREES:  1     2  3     4     5  6     7
-// -- REL SEMITONES:  0  1  2  3  4  5  6  7  8  9  10 11 12
-// HARMONIC MINOR
-// --       QUALITY:  mM    h  A     m     D  M        F
-// -- SCALE DEGREES:  1     2  3     4     5  6        7
-// -- REL SEMITONES:  0  1  2  3  4  5  6  7  8  9  10 11 12
-// MELODIC MINOR
-// --       QUALITY:  mM    m  A     D     D     h     h
-// -- SCALE DEGREES:  1     2  3     4     5     6     7
-// -- REL SEMITONES:  0  1  2  3  4  5  6  7  8  9  10 11 12
-
-// Use SEMITONES for arrays, not scale degrees.
-
-function findChordforHarmonicMinor(event){
-	 if (pitchIsInSetOf(event, [0])) {
-    return minMajChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [2])) {
-    return halfDiminishedChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [3])){
-  		return augMajorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [5])){
-  		return minorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [7])){
-  		return dominantChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [8])){
-  		return majorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [11])){
-  		return fullDiminishedChordWithRoot(event);
-  } else {
-    return [event];
-  }
-}
-
-function findChordforMajor(event){
-	 if (pitchIsInSetOf(event, [0,5])) {
-    return majorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [2,4,9])) {
-    return minorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [7])){
-  		return dominantChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [11])){
-  		return halfDiminishedChordWithRoot(event);
-  } else {
-    return [event];
-  }
-}
-
-function findChordforNaturalMinor(event){
-	 if (pitchIsInSetOf(event, [3,8])) {
-    return majorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [0,5,7])) {
-    return minorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [10])){
-  		return dominantChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [2])){
-  		return halfDiminishedChordWithRoot(event);
-  } else {
-    return [event];
-  }
-}
-
-function findChordforJazzMinor(event){
-	 if (pitchIsInSetOf(event, [0])) {
-    return minMajChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [2])) {
-    return minorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [3])){
-  		return augMajorChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [5,7])){
-  		return dominantChordWithRoot(event);
-  } else if (pitchIsInSetOf(event, [9,11])){
-  		return halfDiminishedChordWithRoot(event);
-  } else {
-    return [event];
-  }
-}
-
+var Scales = {
+'Harmonic Minor' : {
+  0 : "minorMajor",
+  2 : "halfDiminished",
+  3 : "augmentedMajor",
+  5 : "minor",
+  7 : "dominant",
+  8 : "major",
+  11 : "fullDiminished" 
+},
+'Major' : {
+  0 : "major",
+  2 : 'minor',
+  4 : 'minor',
+  5 : 'major',
+  7 : 'dominant',
+  9 : 'minor',
+  11 : 'halfDiminished'
+},
+'Natural Minor' : {
+  0 : 'minor',
+  2 : 'halfDiminished',
+  3 : 'major',
+  5 : 'minor',
+  7 : 'minor',
+  8 : 'major',
+  10 : 'dominant'
+},
+'Jazz Minor' : {
+  0 : 'minorMajor',
+  2 : 'minor',
+  3 : 'augmentedMajor',
+  5 : 'dominant',
+  7 : 'dominant',
+  9 : 'halfDiminished',
+  11 : 'halfDiminished'
+}};
 
 
 // Chord Type Router
 
 function chordForNote(event) {
-	switch(keyQuality()){
-		case 0:
-			Trace('(find maj)');
-			return findChordforMajor(event);
-			break;
-		case 1:
-			Trace('(find nat minor)');
-			return findChordforNaturalMinor(event);
-			break;
-		case 2:
-		Trace('(find harm minor)');
-			return findChordforHarmonicMinor(event);
-			break;
-		case 3:
-			Trace('(find jazz minor)');
-			return findChordforJazzMinor(event);
-			break;
-		default:
-			Trace("oh shit");
-			break;
-	}
+  var scaleType = scaleQuality();
+  log('event', event);
+  var absPitch = event.pitch;
+  var relativePitch = semitoneDifferenceFromRoot(absPitch);
+  var chordType = Scales[scaleType][relativePitch];
+  if(chordType){
+    return buildVoicing(chordType, event);
+  } else {
+    Trace("Not a diatonic chord");
+    return [event];
+  }
 }
 
-function HandleMIDI(event) {
-  playChord(chordForNote(event));  
+// Main Function
+function copyNote(event){
+  var copy = new event.constructor();
+  copy.pitch = event.pitch;
+  copy.velocity = event.velocity;
+  return copy;
+}
+function HandleMIDI(event){
+  playChord(chordForNote(event));
 }
